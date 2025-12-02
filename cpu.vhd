@@ -25,24 +25,38 @@ architecture behavioral of kerna is
   signal SF, ZF, CF: std_logic := '0';
   signal temp_result: std_logic_vector(8 downto 0);
   signal temp_mul: std_logic_vector(15 downto 0);
-
+  signal src_reg1_addr: std_logic_vector(2 downto 0);
+  signal src_reg2_addr: std_logic_vector(2 downto 0);
+  signal dest_reg_addr: std_logic_vector(2 downto 0);
+  signal branch_target: std_logic_vector(3 downto 0);
+  signal branch_cond: std_logic_vector(1 downto 0);
+  
   -- computer system registers
   type Registers is array (0 to 7) of std_logic_vector(7 downto 0);
-  signal R : Registers := (others => (others => '0'));
+  signal R : Registers := (
+    0 => "00000001",
+    1 => "00000010",
+    2 => "00000100",
+    3 => "00000000",
+    4 => "00000101",
+    5 => "00100111",
+    6 => "01000000",
+    7 => "00010000"
+  );
 
   -- Define ROM
   type ROM_Type is array (0 to 15) of std_logic_vector(15 downto 0);
   signal ROM : ROM_Type := (
-    0  => "0000000000000010", -- Shift SHL
-    1  => "0000000000000011", -- Shift ROL
+    0  => "0000100000000000", -- Shift SHL
+    1  => "0000110000000000", -- Shift ROL
     2  => "0001000000000000", -- ALU AC + MQ
-    3  => "0001000100000000", -- ALU AC - MQ
-    4  => "0001001000000000", -- ALU AC * MQ
-    5  => "0001001100000000", -- ALU AC / MQ
-    6  => "0001010000000000", -- ALU AC AND MQ
-    7  => "0001010100000000", -- ALU AC OR MQ
-    8  => "0001011000000000", -- ALU AC XOR MQ
-    9  => "0001011100000000", -- ALU NOT AC
+    3  => "0001001000000000", -- ALU AC - MQ
+    4  => "0001010000000000", -- ALU AC * MQ
+    5  => "0001011000000000", -- ALU AC / MQ
+    6  => "0001100000000000", -- ALU AC AND MQ
+    7  => "0001101000000000", -- ALU AC OR MQ
+    8  => "0001110000000000", -- ALU AC XOR MQ
+    9  => "0001111000000000", -- ALU NOT AC
     10 => "0010000000000000", -- Store AC in R0, double AC
     11 => "0011000000000000", -- Double MQ
     12 => "0100000000000000", -- Toggle AC
@@ -81,8 +95,12 @@ begin
 
       -- Extract info from IR 
       op_code <= instruction_register(15 downto 12);
-      shift_code <= instruction_register(2 downto 0);
-
+      shift_code <= instruction_register(11 downto 9);
+		src_reg1_addr <= instruction_register(8 downto 6);  -- first source register
+		src_reg2_addr <= instruction_register(5 downto 3);  -- second source register
+		dest_reg_addr <= instruction_register(2 downto 0);  -- destination register
+		branch_target <= instruction_register(5 downto 2); 
+		branch_cond  <= instruction_register(1 downto 0);
       case op_code is
 
         ----------------------------------------------------------------
@@ -90,54 +108,44 @@ begin
           case shift_code is
             when "000" => -- NSH
               AC <= AC;
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-              SF <= AC(7);
 
             when "001" => -- ZERO
               AC <= (others => '0');
               ZF <= '1';
-              SF <= '0';
 
             when "010" => -- SHL
               CF <= AC(7);
-              AC <= std_logic_vector(shift_left(unsigned(AC), 1));
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-              SF <= AC(7);
+              AC <= std_logic_vector(shift_left(unsigned(AC), 1));              
 
             when "011" => -- ROL
               AC <= AC(6 downto 0) & AC(7);
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-              SF <= AC(7);
 
             when "100" => -- RLC
               AC <= AC(6 downto 0) & CF;
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
               SF <= AC(7);
 
             when "101" => -- SHR
               CF <= AC(0);
               AC <= std_logic_vector(shift_right(unsigned(AC), 1));
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-              SF <= AC(7);
 
             when "110" => -- ROR
               AC <= AC(0) & AC(7 downto 1);
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-              SF <= AC(7);
 
             when "111" => -- RRC
               AC <= CF & AC(7 downto 1);
-              if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-              SF <= AC(7);
 
             when others =>
               null;
           end case;
-			 
+			 if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
+			 SF <= AC(7);
           destnation_register <= AC;
-
+			 R(to_integer(unsigned(dest_reg_addr))) <= AC;
         ----------------------------------------------------------------
         when "0001" => -- ALU operations
+		    AC <= R(to_integer(unsigned(src_reg1_addr))) ;
+			 MQ <= R(to_integer(unsigned(src_reg2_addr))) ;
+			 
           case instruction_register(11 downto 9) is
             when "000" => -- AC + MQ
               temp_result <= std_logic_vector(('0' & unsigned(AC)) + ('0' & unsigned(MQ)));
@@ -198,7 +206,7 @@ begin
               null;
           end case;
           destnation_register <= AC;
-
+			 R(to_integer(unsigned(dest_reg_addr))) <= AC;
         ----------------------------------------------------------------
         -- Other opcodes (Store, Toggle, Increment/Decrement, etc.)
         when "0010" =>
@@ -294,17 +302,47 @@ begin
           destnation_register <= MQ;
 
         when "1111" =>
-          AC <= (others => '0');
-          MQ <= (others => '0');
-          ZF <= '1';
-          SF <= '0';
-          CF <= '0';
-          destnation_register <= AC;
+			 branch_target <= instruction_register(5 downto 2);
+			 branch_cond  <= instruction_register(1 downto 0);
+
+				case branch_cond is
+					when "00" => -- Branch if equal
+						if(AC = MQ) then
+							pc_register <= branch_target;
+						end if;
+						
+					when "01" => -- Branch if greater than
+						if(AC > MQ) then
+							pc_register <= branch_target;
+						end if;
+						
+					when "10" => -- Branch LC
+						if(CF = '1') then
+							pc_register <= branch_target;
+						end if;
+						
+					when "11" => -- Branch LZ
+						if(ZF = '1') then
+							pc_register <= branch_target;
+						end if;
+						
+					when others =>
+					  null;
+				end case;
 
         when others =>
           null;
 
-      end case;  
+      end case; 
+	   	
+      if op_code /= "1111" then
+        if unsigned(pc_register) = 15 then
+          pc_register <= "0000";
+        else
+          pc_register <= std_logic_vector(unsigned(pc_register) + 1);
+        end if;
+      end if;
+		
     end if;  
   end process;
 
