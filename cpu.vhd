@@ -9,6 +9,7 @@ entity cpu is
  );
  port(
   i_reset: in std_logic;
+  i_clock: in std_logic;
   kit_clk: in std_logic;
   
   seven_segments : out STD_LOGIC_VECTOR (6 downto 0);
@@ -21,9 +22,7 @@ end cpu;
 architecture behavioral of cpu is 
   -- signal section
   signal SF, ZF, CF: std_logic := '0';
-  signal cpu_clk : std_logic := '0';
-  signal cpu_ctr  : unsigned(26 downto 0) := (others => '0'); -- 27 bits
-  signal pc_signal : std_logic_vector(Bit_Size-1 downto 0) := (others => '0');
+	signal pc_signal : std_logic_vector(Bit_Size-1 downto 0) := (others => '0');
   -- Seven Segment signals
   signal refresh_counter : unsigned(16 downto 0) := (others => '0');
   signal mux_sel         : STD_LOGIC := '0';
@@ -103,25 +102,7 @@ architecture behavioral of cpu is
   );
 
 begin 
-
-  process (kit_clk)
-  begin
-    if rising_edge(kit_clk) then
-      
-      -- Check MSB of the counter
-      if cpu_ctr(26) = '1' then
-        cpu_ctr <= (others => '0');  -- reset counter
-        cpu_clk <= not cpu_clk;      -- toggle CPU clock
-      else
-        cpu_ctr <= cpu_ctr + 1;      -- increment normally
-        cpu_clk <= '0';              -- keep it low
-      end if;
-
-    end if;
-  end process;
-
-
-  process (kit_clk)
+  process (i_reset, i_clock)
   variable pc_register : std_logic_vector(Bit_Size-1 downto 0);
   variable instruction_register : std_logic_vector(15 downto 0) := x"0000";
   variable temp_result: std_logic_vector(8 downto 0);
@@ -139,7 +120,7 @@ begin
   variable memory_rw: std_logic := '0';
   
   begin
-    if i_reset = '1' then
+    if not(i_reset) = '1' then
       -- reset
       AC := x"00";
       MQ := x"00";
@@ -147,7 +128,10 @@ begin
       ZF <= '0';
       SF <= '0';
       CF <= '0';
-    elsif cpu_clk = '1' then        
+		destnation_register <= x"00";	
+    elsif not(rising_edge(i_clock)) then	
+      -- Update PC
+		pc_register := pc_signal;
       -- Fetch instruction
       instruction_register := ROM(to_integer(unsigned(pc_register)));
 
@@ -410,6 +394,7 @@ begin
         end if;
       end if;
 		  pc_signal <= pc_register;
+		-- destnation_register <= "000" & pc_register ; -- debug info displaying pc instead of output 
     end if;  
 	 
 
@@ -422,7 +407,7 @@ begin
   variable ones : integer range 0 to 9;
   
   begin
-	if rising_edge(kit_clk) then
+	if not(rising_edge(kit_clk)) then
 	  num_int := to_integer( unsigned(destnation_register) );
 	  tens := num_int / 10;    -- Get tens digit
 	  ones := num_int mod 10;  -- Get ones digit
@@ -434,7 +419,7 @@ begin
   -- Process 3: Clock divider for multiplexing (~50kHz refresh rate)
   process(kit_clk)
   begin
-	  if rising_edge(kit_clk) then
+	  if not(rising_edge(kit_clk)) then
 			refresh_counter <= refresh_counter + 1;
 	  end if;
   end process;
