@@ -130,7 +130,8 @@ begin
   variable MQ : std_logic_vector(7 downto 0) := x"00";
   variable shift_code: std_logic_vector(2 downto 0);
   variable memory_rw: std_logic := '0';
-  
+
+  variable store_addr : std_logic_vector(2 downto 0);
   begin
     if i_reset = '0' then
       -- reset
@@ -283,20 +284,14 @@ begin
         accumulator_2 <= MQ;
         ----------------------------------------------------------------
         -- Other opcodes (Store, Toggle, Increment/Decrement, etc.)
-        when "0010" =>
-          R(0) <= AC;
-          AC := std_logic_vector(unsigned(AC) + unsigned(AC));
-          CF <= '0';
-          if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-          SF <= AC(7);
-          destnation_register <= AC;
+        when "0010" => -- Store to memory M[addr] ← $rs
+          store_addr := instruction_register(2 downto 0);
+          R( to_integer( unsigned(store_addr) )) <= AC;
 
-        when "0011" =>
-          MQ := std_logic_vector(unsigned(MQ) + unsigned(MQ));
-          CF <= '0';
-          if MQ = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-          SF <= MQ(7);
-          destnation_register <= MQ;
+        when "0011" => -- Load From Memory $rs ← M[addr] 
+          store_addr := instruction_register(2 downto 0);
+          accumulator_1 <= R( to_integer( unsigned(src_reg1_addr) ));
+          accumulator_2 <= R( to_integer( unsigned(src_reg2_addr) ));
 
         when "0100" =>
           AC := not AC;
@@ -312,20 +307,20 @@ begin
           SF <= MQ(7);
           destnation_register <= MQ;
 
-        when "0110" =>
+        when "0110" => -- Branch if Lower than
           AC := not MQ;
           CF <= '0';
           if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
           SF <= AC(7);
           destnation_register <= AC;
 
-        when "0111" =>
+        when "0111" => -- Mirror AC
           AC := AC(0) & AC(1) & AC(2) & AC(3) & AC(4) & AC(5) & AC(6) & AC(7);
           if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
           SF <= AC(7);
           destnation_register <= AC;
 
-        when "1000" =>
+        when "1000" => -- Mirror MQ
           MQ := MQ(0) & MQ(1) & MQ(2) & MQ(3) & MQ(4) & MQ(5) & MQ(6) & MQ(7);
           CF <= '0';
           if MQ = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
@@ -333,19 +328,14 @@ begin
           destnation_register <= MQ;
 
         when "1001" =>
-          R(1) <= MQ;
-          MQ := std_logic_vector(unsigned(MQ) + unsigned(MQ));
-          CF <= '0';
-          if MQ = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-          SF <= MQ(7);
-          destnation_register <= MQ;
+          if(accumulator_1 < accumulator_2) then
+            pc_register := branch_target;
+            next_addr := '0';
+          end if;
 
-        when "1010" =>
-          AC := std_logic_vector(unsigned(AC) + 1);
-          CF <= '0';
-          if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-          SF <= AC(7);
-          destnation_register <= AC;
+        when "1010" => -- Branch LAD
+          pc_register := branch_target;
+          next_addr := '0';
 
         when "1011" => -- Branch LS
           if(SF = '1') then
