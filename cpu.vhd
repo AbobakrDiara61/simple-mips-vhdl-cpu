@@ -69,13 +69,13 @@ architecture behavioral of cpu is
     -- Branch LZ is opcode 1101, target address=00111
     4  => "1101000000000111", -- Branch if ZF=1 to addr 00111
     
-    -- Instruction 5: R6 <- R5 - R4
-    -- SUB is opcode 0001, ALU code 001, src1=R5, src2=R4, dest=R6
-    5  => "0001001101100110", -- R6 <- R5 - R4
+    -- Instruction 5: R2 <- SHR(R5)
+    -- SUB is opcode 0000, Shift code 101, src1=R5, src2=don't care, dest=R2
+    5  => "0000101101000010", 
     
-    -- Instruction 6: R2 <- R2 XOR R2
-    -- XOR is opcode 0001, ALU code 110, src1=R2, src2=R2, dest=R2
-    6  => "0001110010010010", -- R2 <- R2 XOR R2
+    -- Instruction 6: LAD without Condition Address 10
+    --  Opcode: 1010 addr 01010
+    6  => "1010000000001010", 
     
     -- Instruction 7: R3 <- R7 * R3
     -- MUL is opcode 0001, ALU code 010, src1=R7, src2=R3, dest=R3
@@ -90,11 +90,15 @@ architecture behavioral of cpu is
     -- Need to specify target address - let's use addr 5 (00101)
     9  => "1111000000000101", -- Branch if R5 > R7 to addr 0101
     
-    10 => x"0000",
-    11 => x"0000",
-    12 => x"0000",
-    13 => x"0000",
-    14 => x"0000",
+    10 => x"15D8", -- R0 <- R7 * R3
+    -- 11 => "0001100000111010",
+    11 => x"183A", -- R2 <- R0 AND R7
+    -- 12 => "0000110101000101", 
+    12 => x"0D45", -- R5 <- ROR(R5)
+    -- 13 => "0010000000000010", -- M[010] <- R5
+    13 => x"2002", -- M[010] <- R5
+    14 => "0011000000110000", -- Load from M[R0], M[R6]
+
     15 => x"0000",
     16 => x"0000",
     17 => x"0000",
@@ -288,11 +292,10 @@ begin
           store_addr := instruction_register(2 downto 0);
           R( to_integer( unsigned(store_addr) )) <= AC;
 
-        when "0011" => -- Load From Memory $rs ← M[addr] 
-          store_addr := instruction_register(2 downto 0);
+        when "0011" => -- Load From Memory $rs ← M[addr] $rd ← M[addr]
           accumulator_1 <= R( to_integer( unsigned(src_reg1_addr) ));
           accumulator_2 <= R( to_integer( unsigned(src_reg2_addr) ));
-
+          destnation_register <= R( to_integer( unsigned(src_reg1_addr) ));
         when "0100" =>
           AC := not AC;
           CF <= '0';
