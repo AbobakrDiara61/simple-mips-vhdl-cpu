@@ -23,6 +23,8 @@ architecture behavioral of cpu is
   -- signal section
   signal SF, ZF, CF: std_logic := '0';
 	signal pc_signal : std_logic_vector(Bit_Size-1 downto 0) := (others => '0');
+  signal accumulator_1 : std_logic_vector(7 downto 0) := x"00";
+  signal accumulator_2 : std_logic_vector(7 downto 0) := x"00";
   -- Seven Segment signals
   signal refresh_counter : unsigned(16 downto 0) := (others => '0');
   signal mux_sel         : STD_LOGIC := '0';
@@ -33,72 +35,83 @@ architecture behavioral of cpu is
   -- computer system registers
   type Registers is array (0 to 7) of std_logic_vector(7 downto 0);
   signal R : Registers := (
-    0 => "00000001",
-    1 => "00000010",
-    2 => "00000100",
-    3 => "00000000",
-    4 => "00000101",
-    5 => "00100111",
-    6 => "01000000",
-    7 => "01000000"
+    0 => "00000101",   -- 5
+    1 => "00001000",   -- 8
+    2 => "00001100",   -- 12
+    3 => "00000110",   -- 6
+    4 => "00010000",   -- 16
+    5 => "00100100",   -- 36
+    6 => "00001001",   -- 9
+    7 => "00000100"    -- 4
   );
 
   -- Define ROM
   type ROM_Type is array (0 to 31) of std_logic_vector(15 downto 0);
   signal ROM : ROM_Type := (
-    -- Shift operations (opcode 0000)
-	 0  => "0001000000010010", -- op=0001(func=000) AC=R0 + MQ=R1 -> R2
-	 1  => "0000010000100010", -- op=0000(func=010) SHL R2 -> R2
-    2  => "1111000001110001", -- op=1111(cond=1) Branch if AC > MQ to addr 0111
-    3  => "0000010100000000", -- op=0000(func=010) SHL R4 -> R0
-    4  => "0000011000000000", -- ROL  R0 <- R0
-    5  => "0000000100000000", -- ZERO (clear AC)
+    -- Instruction 0: R1 <- NSH (R1) which prints 8
+    -- NSH is opcode 0000, shift_code 000, src1=R1, src2=don't care, dest=R1
+    -- Format: opcode(4) shift_code(3) src1(3) src2(3) dest(3)
+    0  => "0000000001000001", -- R1 <- NSH(R1) 
     
-    -- ALU operations (opcode 0001)
-    6  => "0000001000000000", -- SHR (shift right)
-    7  => "0001001000011000", -- AC - MQ (R1 - R1 -> R0)
-    8  => "0001010000101000", -- AC * MQ (R2 * R2 -> R0)
-    9  => "0001011000111000", -- AC / MQ (R3 / R3 -> R0)
-    10 => "0001100001001000", -- AC AND MQ (R4 AND R4 -> R0)
-    11 => "0001101001011000", -- AC OR MQ (R5 OR R5 -> R0)
-    12 => "0001110001101000", -- AC XOR MQ (R6 XOR R6 -> R0)
-    13 => "0001111001111000", -- NOT AC (R7 -> R0)
+    -- Instruction 1: R1 <- R0 + R1
+    -- ADD is opcode 0001, ALU code 000, src1=R0, src2=R1, dest=R1
+    1  => "0001000000001001", -- R1 <- R0 + R1
     
-    -- Store and double operations
-    14 => "0010000000000000", -- Store AC in R0, double AC
-    15 => "0011000000000000", -- Double MQ
+    -- Instruction 2: if R1(13) > R1(8) then branch to address 3
+    -- Branch if greater than is opcode 1111, target address=00011
+    2  => "1111000000000011", -- Branch if R0 > R1 to addr 00011
     
-    -- Toggle operations
-    16 => "0100000000000000", -- Toggle AC
-    17 => "0101000000000000", -- Toggle MQ
+    -- Instruction 3: R1 <- ZERO (R1)
+    -- ZERO is opcode 0000, shift_code 001, src1=R1, src2=don't care, dest=R1
+    3  => "0000001001010001", -- R1 <- ZERO(R1)
     
-    -- Transfer operations
-    18 => "0110000000000000", -- AC = NOT MQ
-    19 => "0111000000000000", -- Mirror AC bits
-    20 => "1000000000000000", -- Mirror MQ bits
+    -- Instruction 4: if ZF=1 then branch to address 7
+    -- Branch LZ is opcode 1101, target address=00111
+    4  => "1101000000000111", -- Branch if ZF=1 to addr 00111
     
-    -- Store and double MQ
-    21 => "1001000000000000", -- Store MQ in R1, double MQ
+    -- Instruction 5: R6 <- R5 - R4
+    -- SUB is opcode 0001, ALU code 001, src1=R5, src2=R4, dest=R6
+    5  => "0001001101100110", -- R6 <- R5 - R4
     
-    -- Increment/Decrement operations
-    22 => "1010000000000000", -- Increment AC
-    23 => "1011000000000000", -- Decrement AC
-    24 => "1100000000000000", -- Decrement MQ
+    -- Instruction 6: R2 <- R2 XOR R2
+    -- XOR is opcode 0001, ALU code 110, src1=R2, src2=R2, dest=R2
+    6  => "0001110010010010", -- R2 <- R2 XOR R2
     
-    -- Clear operations
-    25 => "1101000000000000", -- Clear AC
+    -- Instruction 7: R3 <- R7 * R3
+    -- MUL is opcode 0001, ALU code 010, src1=R7, src2=R3, dest=R3
+    7  => "0001010111011011", -- R3 <- R7 * R3
     
-    -- Branch operations (1110)
-    26 => "1110000000000000", -- Branch LC (Carry)
-    27 => "1110000000000001", -- Branch LZ (Zero)
+    -- Instruction 8: R1 <- R5 / R7
+    -- DIV is opcode 0001, ALU code 011, src1=R5, src2=R7, dest=R1
+    8  => "0001011101111001", -- R1 <- R5 / R7
     
-    -- Compare and branch operations (1111)
-    28 => "1111000000000000", -- Branch if equal (AC == MQ)
-    29 => "1111000000000001", -- Branch if greater than (AC > MQ)
+    -- Instruction 9: if R1(9) > R7(4) then branch
+    -- Branch if greater than is opcode 1111, target address=00000
+    -- Need to specify target address - let's use addr 5 (00101)
+    9  => "1111000000000101", -- Branch if R5 > R7 to addr 0101
     
-    -- Additional test instructions
-    30 => "0000011100000000", -- RLC (rotate left through carry)
-    31 => "0000011100000000"  -- RLC (another one for testing)
+    10 => x"0000",
+    11 => x"0000",
+    12 => x"0000",
+    13 => x"0000",
+    14 => x"0000",
+    15 => x"0000",
+    16 => x"0000",
+    17 => x"0000",
+    18 => x"0000",
+    19 => x"0000",
+    20 => x"0000",
+    21 => x"0000",
+    22 => x"0000",
+    23 => x"0000",
+    24 => x"0000",
+    25 => x"0000",
+    26 => x"0000",
+    27 => x"0000",
+    28 => x"0000",
+    29 => x"0000",
+    30 => x"0000",
+    31 => x"0000"
   );
 
 begin 
@@ -111,7 +124,6 @@ begin
   variable src_reg2_addr: std_logic_vector(2 downto 0);
   variable dest_reg_addr: std_logic_vector(2 downto 0);
   variable branch_target: std_logic_vector(4 downto 0);
-  variable branch_cond: std_logic := '0';
   variable next_addr: std_logic := '1';
   variable op_code: std_logic_vector(3 downto 0);
   variable AC : std_logic_vector(7 downto 0) := x"00";
@@ -120,15 +132,25 @@ begin
   variable memory_rw: std_logic := '0';
   
   begin
-    if not(i_reset) = '1' then
+    if i_reset = '0' then
       -- reset
-      AC := x"00";
-      MQ := x"00";
+      accumulator_1 <= x"00";
+      accumulator_2 <= x"00";
       pc_signal <= (others => '0');
       ZF <= '0';
       SF <= '0';
       CF <= '0';
-		destnation_register <= x"00";	
+      destnation_register <= x"00";	
+      R <= (
+        0 => "00000101",   -- 5
+        1 => "00001000",   -- 8
+        2 => "00001100",   -- 12
+        3 => "00000110",   -- 6
+        4 => "00010000",   -- 16
+        5 => "00100100",   -- 36
+        6 => "00001001",   -- 9
+        7 => "00000100"    -- 4
+      );
     elsif not(rising_edge(i_clock)) then	
       -- Update PC
 		pc_register := pc_signal;
@@ -141,18 +163,17 @@ begin
 		src_reg1_addr := instruction_register(8 downto 6);  -- first source register
 		src_reg2_addr := instruction_register(5 downto 3);  -- second source register
 		dest_reg_addr := instruction_register(2 downto 0);  -- destination register
-		branch_target := instruction_register(5 downto 1); 
-		branch_cond  := instruction_register(0);
+		branch_target := instruction_register(4 downto 0); 
 		next_addr := '1';
-		AC := R(to_integer(unsigned(src_reg1_addr))) ;
-		MQ := R(to_integer(unsigned(src_reg2_addr))) ;
+    AC := accumulator_1;
+    MQ := accumulator_2;
 		
       case op_code is
 
         ----------------------------------------------------------------
 
         when "0000" => -- shift unit
-
+          AC := R(to_integer(unsigned(src_reg1_addr))) ;
           case shift_code is
             when "000" => -- NSH
               AC := AC;
@@ -190,10 +211,13 @@ begin
 			 SF <= AC(7);
           destnation_register <= AC;
 			 R(to_integer(unsigned(dest_reg_addr))) <= AC;
+       accumulator_1 <= AC;
+       accumulator_2 <= MQ;
         ----------------------------------------------------------------
         when "0001" => -- ALU operations
 
-			 
+          AC := R(to_integer(unsigned(src_reg1_addr))) ;
+          MQ := R(to_integer(unsigned(src_reg2_addr))) ;
           case instruction_register(11 downto 9) is
             when "000" => -- AC + MQ
               temp_result := std_logic_vector(('0' & unsigned(AC)) + ('0' & unsigned(MQ)));
@@ -249,12 +273,14 @@ begin
               CF <= '0';
               if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
               SF <= AC(7);
-
+              MQ := x"00";
             when others =>
               null;
           end case;
           destnation_register <= AC;
 			 R(to_integer(unsigned(dest_reg_addr))) <= AC;
+        accumulator_1 <= AC;
+        accumulator_2 <= MQ;
         ----------------------------------------------------------------
         -- Other opcodes (Store, Toggle, Increment/Decrement, etc.)
         when "0010" =>
@@ -321,66 +347,34 @@ begin
           SF <= AC(7);
           destnation_register <= AC;
 
-        when "1011" =>
-          AC := std_logic_vector(unsigned(AC) - 1);
-          CF <= '0';
-          if AC = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-          SF <= AC(7);
-          destnation_register <= AC;
+        when "1011" => -- Branch LS
+          if(SF = '1') then
+            pc_register := branch_target;
+            next_addr := '0';
+          end if;
 
-        when "1100" =>
-          MQ := std_logic_vector(unsigned(MQ) - 1);
-          CF <= '0';
-          if MQ = "00000000" then ZF <= '1'; else ZF <= '0'; end if;
-          SF <= MQ(7);
-          destnation_register <= MQ;
+        when "1100" => -- Branch LC
+          if(CF = '1') then
+            pc_register := branch_target;
+            next_addr := '0';
+          end if;
 
-        when "1101" =>
-          AC := (others => '0');
-          ZF <= '1';
-          SF <= '0';
-          CF <= '0';
-          destnation_register <= AC;
+        when "1101" => -- Branch LZ
+          if(ZF = '1') then
+            pc_register := branch_target;
+            next_addr := '0';
+          end if;
 
         when "1110" =>
-		  
-				case branch_cond is
-					when '0' => -- Branch LC
-						if(CF = '1') then
+          if(accumulator_1 = accumulator_2) then -- Branch if equal
+            pc_register := branch_target;
+            next_addr := '0';
+          end if;
+        when "1111" => -- Branch if greater than
+						if(accumulator_1 > accumulator_2) then
 							pc_register := branch_target;
 							next_addr := '0';
 						end if;
-						
-					when '1' => -- Branch LZ
-						if(ZF = '1') then
-							pc_register := branch_target;
-							next_addr := '0';
-						end if;
-						
-					when others =>
-					  null;
-				end case;
-				
-				
-        when "1111" =>
-		  
-				case branch_cond is
-					when '0' => -- Branch if equal
-						if(AC = MQ) then
-							pc_register := branch_target;
-							next_addr := '0';
-						end if;
-						
-					when '1' => -- Branch if greater than
-						if(AC > MQ) then
-							pc_register := branch_target;
-							next_addr := '0';
-						end if;
-
-					when others =>
-					  null;
-				end case;
-
         when others =>
           null;
 
